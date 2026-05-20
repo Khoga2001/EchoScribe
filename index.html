@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>EchoScribe – Real-Time Transcription for the Hearing Impaired</title>
+  <meta name="description" content="EchoScribe provides live speech-to-text transcription for individuals with hearing impairments in academic, professional, and social settings." />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- FontAwesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bg:     { DEFAULT: '#121212', surface: '#1E1E1E', elevated: '#2A2A2A' },
+            accent: { DEFAULT: '#6C63FF', light: '#BB86FC', dim: '#3D3580' },
+            active: { DEFAULT: '#03DAC6', dim: '#00C9A7' },
+            warn:   { DEFAULT: '#CF6679', bright: '#FF6B6B' },
+          },
+          fontFamily: { inter: ['Inter','sans-serif'] },
+          animation: {
+            'fade-up':   'fadeUp 0.4s ease both',
+            'fade-in':   'fadeIn 0.3s ease both',
+            'slide-r':   'slideR 0.35s cubic-bezier(0.34,1.56,0.64,1) both',
+            'slide-l':   'slideL 0.35s cubic-bezier(0.34,1.56,0.64,1) both',
+            'bounce-in': 'bounceIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both',
+          },
+          keyframes: {
+            fadeUp:   { from:{ opacity:0, transform:'translateY(20px)' }, to:{ opacity:1, transform:'translateY(0)' } },
+            fadeIn:   { from:{ opacity:0 }, to:{ opacity:1 } },
+            slideR:   { from:{ opacity:0, transform:'translateX(-24px)' }, to:{ opacity:1, transform:'translateX(0)' } },
+            slideL:   { from:{ opacity:0, transform:'translateX(24px)' }, to:{ opacity:1, transform:'translateX(0)' } },
+            bounceIn: { from:{ opacity:0, transform:'scale(0.8)' }, to:{ opacity:1, transform:'scale(1)' } },
+          },
+        }
+      }
+    };
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0f;
+      color: #fff;
+      overflow: hidden;
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+    }
+
+    /* ── Desktop ambient glow ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 20% 20%, rgba(108,99,255,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 80% 80%, rgba(3,218,198,0.10) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    /* ── Phone frame ── */
+    #phone {
+      width:  min(390px, 100vw);
+      height: min(844px, 100dvh);
+      position: relative;
+      overflow: hidden;
+      border-radius: clamp(0px, 2.5vw, 46px);
+      box-shadow:
+        0 40px 100px rgba(0,0,0,0.9),
+        0 0 0 1px rgba(255,255,255,0.06),
+        inset 0 0 0 1px rgba(255,255,255,0.04);
+      background: #121212;
+    }
+
+    /* ── Screen layer ── */
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      background: #121212;
+      overflow: hidden;
+    }
+    .screen.active { display: flex; }
+
+    /* ── Scrollable area ── */
+    .t-scroll {
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #3D3580 transparent;
+      scroll-behavior: smooth;
+    }
+    .t-scroll::-webkit-scrollbar { width: 3px; }
+    .t-scroll::-webkit-scrollbar-thumb { background: #3D3580; border-radius: 4px; }
+
+    /* ── Waveform ── */
+    .wave-bar {
+      width: 3px;
+      border-radius: 4px;
+      background: linear-gradient(to top, #03DAC6, #6C63FF);
+      animation: waveB var(--dur, 0.7s) ease-in-out infinite alternate;
+      transform-origin: bottom;
+    }
+    @keyframes waveB {
+      from { transform: scaleY(0.1); opacity: 0.4; }
+      to   { transform: scaleY(1);   opacity: 1; }
+    }
+
+    /* ── Keyword chip ── */
+    .kw {
+      background: rgba(108,99,255,0.25);
+      color: #BB86FC;
+      border-radius: 5px;
+      padding: 0 4px;
+      font-weight: 600;
+    }
+
+    /* ── Glass surface ── */
+    .glass {
+      background: rgba(30,30,30,0.72);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    /* ── Chat bubbles ── */
+    .bub-a { background: rgba(130,177,255,0.11); border-left: 3px solid #82B1FF; }
+    .bub-b { background: rgba(255,213,79,0.09);  border-left: 3px solid #FFD54F; }
+    .bub-c { background: rgba(165,214,167,0.09); border-left: 3px solid #A5D6A7; }
+
+    /* ── Splash rings ── */
+    @keyframes splashRing {
+      0%   { transform: scale(0.85); opacity: 0.6; }
+      100% { transform: scale(1.35); opacity: 0;   }
+    }
+    .s-ring {
+      position: absolute;
+      width: 110px; height: 110px;
+      border-radius: 50%;
+      border: 2px solid rgba(108,99,255,0.45);
+      animation: splashRing 2.5s ease-out infinite;
+    }
+    .s-ring:nth-child(2) { animation-delay: 0.85s; }
+    .s-ring:nth-child(3) { animation-delay: 1.7s; }
+
+    /* ── Active mic ring ── */
+    @keyframes micRing {
+      0%,100% { transform: scale(1);    opacity: 0.6; }
+      50%      { transform: scale(1.20); opacity: 0.1; }
+    }
+    .mic-ring {
+      position: absolute;
+      inset: -10px;
+      border-radius: 50%;
+      border: 2px solid rgba(3,218,198,0.4);
+      animation: micRing 1.8s ease-in-out infinite;
+    }
+    .mic-ring-y {
+      position: absolute;
+      inset: -10px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,213,79,0.4);
+      animation: micRing 1.8s ease-in-out infinite;
+    }
+
+    /* ── Toggle ── */
+    .tog-track {
+      width: 46px; height: 26px;
+      background: #2a2a2a;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 13px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .tog-track.on { background: #6C63FF; border-color: #6C63FF; }
+    .tog-thumb {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .tog-track.on .tog-thumb { transform: translateX(20px); }
+
+    /* ── Mode card ── */
+    .mode-card {
+      transition: transform 0.18s, box-shadow 0.18s;
+      cursor: pointer;
+    }
+    .mode-card:hover  { transform: translateY(-2px); }
+    .mode-card:active { transform: scale(0.96); }
+
+    /* ── Grad text ── */
+    .grad {
+      background: linear-gradient(135deg, #BB86FC 0%, #6C63FF 45%, #03DAC6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Confidence bar ── */
+    .c-bar {
+      height: 3px; border-radius: 2px;
+      background: linear-gradient(90deg, #FFD54F, #03DAC6);
+      transition: width 0.6s ease;
+    }
+
+    /* ── Cursor blink ── */
+    .cursor-blink {
+      display: inline-block;
+      width: 2px; height: 1em;
+      background: #03DAC6;
+      border-radius: 1px;
+      vertical-align: text-bottom;
+      margin-left: 2px;
+      animation: blink 1.1s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{ opacity:1; } 50%{ opacity:0; } }
+
+    /* ── Toast ── */
+    #toast {
+      position: absolute;
+      top: 60px; left: 50%;
+      transform: translateX(-50%) translateY(-90px);
+      transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s;
+      opacity: 0; z-index: 999; pointer-events: none;
+      min-width: 220px; white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    /* ── Onboarding dots ── */
+    .ob-dot { width: 8px; height: 8px; border-radius: 4px; background: #2a2a2a; transition: all 0.3s; }
+    .ob-dot.on { width: 24px; background: #6C63FF; }
+
+    /* ── Hist row ── */
+    .hist-row {
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+    .hist-row:last-child { border-bottom: 0; }
+    .hist-row:active { background: rgba(108,99,255,0.08); }
+
+    /* ── Nav button ── */
+    .nav-b { transition: color 0.2s, transform 0.15s; }
+    .nav-b:active { transform: scale(0.85); }
+
+    /* ── Light mode ── */
+    .lm body, body.lm { background: #F5F5F7; color: #1A1A1A; }
+    body.lm #phone { background: #F5F5F7; }
+    body.lm .screen { background: #F5F5F7; color: #1A1A1A; }
+    body.lm .glass {
+      background: rgba(255,255,255,0.85);
+      border-color: rgba(0,0,0,0.07);
+    }
+    body.lm .kw { background: rgba(108,99,255,0.14); color: #5248D0; }
+    body.lm .wave-bar { background: linear-gradient(to top,#6C63FF,#BB86FC); }
+
+    /* ── Onboarding slide hidden ── */
+    .ob-slide { display: flex; }
+    .ob-slide.hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<div id="phone">
+
+  <!-- Status bar -->
+  <div class="absolute top-0 inset-x-0 z-50 flex items-center justify-between px-6 pt-3 pb-1 pointer-events-none">
+    <span class="text-[11px] font-bold text-white/60" id="clockEl">17:37</span>
+    <div class="flex items-center gap-1.5">
+      <i class="fa-solid fa-signal text-white/55 text-[10px]"></i>
+      <i class="fa-solid fa-wifi text-white/55 text-[10px]"></i>
+      <i class="fa-solid fa-battery-three-quarters text-white/55 text-[10px]"></i>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast">
+    <div class="glass rounded-2xl px-4 py-3 flex items-center gap-3 shadow-lg">
+      <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style="background:rgba(3,218,198,0.18);">
+        <i class="fa-solid fa-check text-active text-[10px]"></i>
+      </div>
+      <span id="toastMsg" class="text-sm font-semibold text-white/90"></span>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       SPLASH
+  ══════════════════════════════ -->
+  <div id="sSplash" class="screen active items-center justify-center gap-0">
+    <div class="relative flex items-center justify-center" style="width:150px;height:150px;">
+      <div class="s-ring"></div>
+      <div class="s-ring"></div>
+      <div class="s-ring"></div>
+      <div class="w-24 h-24 rounded-[28px] flex items-center justify-center relative z-10"
+           style="background:linear-gradient(145deg,#6C63FF,#03DAC6);box-shadow:0 0 50px rgba(108,99,255,0.55);">
+        <i class="fa-solid fa-ear-listen text-white text-4xl"></i>
+      </div>
+    </div>
+    <h1 class="text-[42px] font-black grad mt-7 tracking-tight leading-none">EchoScribe</h1>
+    <p class="text-white/40 text-[11px] font-semibold tracking-[4px] uppercase mt-2">Hear Through Words</p>
+    <div class="mt-16 flex flex-col items-center gap-2.5">
+      <div class="w-5 h-5 border-2 border-accent/40 border-t-accent/80 rounded-full animate-spin"></div>
+      <span class="text-white/25 text-xs">Initializing…</span>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       ONBOARDING
+  ══════════════════════════════ -->
+  <div id="sOnboard" class="screen">
+    <div class="flex-1 relative overflow-hidden">
+
+      <!-- Slide 0 -->
+      <div class="ob-slide absolute inset-0 flex flex-col items-center justify-center px-8 gap-7 animate-fade-up" data-i="0">
+        <div class="w-36 h-36 rounded-[44px] flex items-center justify-center"
+             style="background:linear-gradient(145deg,rgba(108,99,255,0.15),rgba(3,218,198,0.12));border:1px solid rgba(108,99,255,0.2);">
+          <i class="fa-solid fa-closed-captioning text-accent-light text-6xl drop-shadow-lg"></i>
+        </div>
+        <div class="text-center">
+          <h2 class="text-[26px] font-extrabold mb-3 leading-tight">Live Transcription</h2>
+          <p class="text-white/50 text-[15px] leading-[1.65]">Converts spoken words into text under <strong class="text-white/80">300ms</strong> — so you never miss a moment in lectures, meetings, or conversations.</p>
+        </div>
+      </div>
+
+      <!-- Slide 1 -->
+      <div class="ob-slide hidden absolute inset-0 flex flex-col items-center justify-center px-8 gap-7" data-i="1">
+        <div class="w-36 h-36 rounded-[44px] flex items-center justify-center"
+             style="background:linear-gradient(145deg,rgba(3,218,198,0.15),rgba(108,99,255,0.12));border:1px solid rgba(3,218,198,0.2);">
+          <i class="fa-solid fa-layer-group text-active text-6xl drop-shadow-lg"></i>
+        </div>
+        <div class="text-center">
+          <h2 class="text-[26px] font-extrabold mb-3 leading-tight">Three Smart Modes</h2>
+          <p class="text-white/50 text-[15px] leading-[1.65]"><strong class="text-white/80">Lecture</strong> for academics, <strong class="text-white/80">Conversation</strong> for social settings, and <strong class="text-white/80">Interview</strong> for professional accuracy — each fully optimized.</p>
+        </div>
+      </div>
+
+      <!-- Slide 2 -->
+      <div class="ob-slide hidden absolute inset-0 flex flex-col items-center justify-center px-8 gap-7" data-i="2">
+        <div class="w-36 h-36 rounded-[44px] flex items-center justify-center"
+             style="background:linear-gradient(145deg,rgba(207,102,121,0.15),rgba(108,99,255,0.12));border:1px solid rgba(207,102,121,0.2);">
+          <i class="fa-solid fa-shield-halved text-accent-light text-6xl drop-shadow-lg"></i>
+        </div>
+        <div class="text-center">
+          <h2 class="text-[26px] font-extrabold mb-3 leading-tight">Private by Design</h2>
+          <p class="text-white/50 text-[15px] leading-[1.65]">All processing stays on-device. Privacy mode auto-deletes sessions. WCAG AAA compliant — built for <strong class="text-white/80">dignity</strong>, not just access.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="px-7 pb-10 flex flex-col items-center gap-5">
+      <div class="flex gap-2" id="obDots">
+        <div class="ob-dot on"></div>
+        <div class="ob-dot"></div>
+        <div class="ob-dot"></div>
+      </div>
+      <button id="obBtn" onclick="obNext()"
+        class="w-full py-4 rounded-2xl font-extrabold text-white text-[17px] transition-all active:scale-95"
+        style="background:linear-gradient(135deg,#6C63FF,#BB86FC);box-shadow:0 10px 30px rgba(108,99,255,0.38);">
+        Continue
+      </button>
+      <button onclick="go('sHome')" class="text-white/30 text-sm font-medium">Skip</button>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       HOME
+  ══════════════════════════════ -->
+  <div id="sHome" class="screen">
+    <!-- Header -->
+    <div class="pt-11 px-5 pb-3 flex-shrink-0">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-white/35 text-[10px] font-semibold uppercase tracking-[3px]">Welcome back</p>
+          <h2 class="text-[26px] font-black text-white leading-tight mt-0.5">EchoScribe <span class="text-accent-light text-xl">✦</span></h2>
+        </div>
+      </div>
+
+      <!-- Status pill -->
+      <div class="mt-4 flex items-center gap-2.5 py-2.5 px-4 rounded-2xl glass">
+        <div class="w-2 h-2 rounded-full bg-active animate-pulse"></div>
+        <span class="text-active text-xs font-bold">Microphone Ready</span>
+        <span class="ml-auto text-white/25 text-[10px]">v2.4.1 · WCAG AAA</span>
+      </div>
+    </div>
+
+    <!-- Modes -->
+    <div class="flex-1 t-scroll px-5 pb-4 space-y-3.5">
+      <p class="text-white/30 text-[10px] font-bold uppercase tracking-[3px] mb-1 pt-1">Select Mode</p>
+
+      <!-- Lecture -->
+      <div class="mode-card rounded-3xl p-5 animate-fade-up"
+           style="background:linear-gradient(145deg,#1C1B36,#241C55);border:1px solid rgba(108,99,255,0.22);box-shadow:0 4px 32px rgba(108,99,255,0.12);"
+           onclick="startMode('lecture')">
+        <div class="flex items-start gap-4">
+          <div class="w-[52px] h-[52px] rounded-[18px] flex items-center justify-center flex-shrink-0"
+               style="background:linear-gradient(145deg,#6C63FF,#BB86FC);box-shadow:0 6px 18px rgba(108,99,255,0.4);">
+            <i class="fa-solid fa-graduation-cap text-white text-xl"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-extrabold text-white text-[17px]">Lecture Mode</h3>
+              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full" style="background:rgba(108,99,255,0.22);color:#BB86FC;">🎓 ACADEMIC</span>
+            </div>
+            <p class="text-white/45 text-[13px] mt-1 leading-relaxed">Continuous 60–90 min transcription. Keyword highlights, auto-save, topic segmentation.</p>
+            <div class="flex gap-3 mt-2.5 flex-wrap">
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-clock mr-1"></i>60–90 min</span>
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-person mr-1"></i>1 speaker</span>
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-floppy-disk mr-1"></i>Auto-save</span>
+            </div>
+          </div>
+          <i class="fa-solid fa-chevron-right text-white/20 text-sm mt-1 flex-shrink-0"></i>
+        </div>
+      </div>
+
+      <!-- Conversation -->
+      <div class="mode-card rounded-3xl p-5 animate-fade-up" style="animation-delay:0.07s;background:linear-gradient(145deg,#141E1B,#102018);border:1px solid rgba(3,218,198,0.2);box-shadow:0 4px 32px rgba(3,218,198,0.08);"
+           onclick="startMode('conversation')">
+        <div class="flex items-start gap-4">
+          <div class="w-[52px] h-[52px] rounded-[18px] flex items-center justify-center flex-shrink-0"
+               style="background:linear-gradient(145deg,#03DAC6,#00A896);box-shadow:0 6px 18px rgba(3,218,198,0.35);">
+            <i class="fa-solid fa-comments text-white text-xl"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-extrabold text-white text-[17px]">Conversation</h3>
+              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full" style="background:rgba(3,218,198,0.15);color:#03DAC6;">💬 SOCIAL</span>
+            </div>
+            <p class="text-white/45 text-[13px] mt-1 leading-relaxed">Chat-style layout, speaker diarization, vibration alerts on name detection.</p>
+            <div class="flex gap-3 mt-2.5 flex-wrap">
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-clock mr-1"></i>5–30 min</span>
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-people-group mr-1"></i>2–5 speakers</span>
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-shield mr-1"></i>Privacy</span>
+            </div>
+          </div>
+          <i class="fa-solid fa-chevron-right text-white/20 text-sm mt-1 flex-shrink-0"></i>
+        </div>
+      </div>
+
+      <!-- Interview -->
+      <div class="mode-card rounded-3xl p-5 animate-fade-up" style="animation-delay:0.14s;background:linear-gradient(145deg,#201A0E,#251E0A);border:1px solid rgba(255,213,79,0.18);box-shadow:0 4px 32px rgba(255,213,79,0.07);"
+           onclick="startMode('interview')">
+        <div class="flex items-start gap-4">
+          <div class="w-[52px] h-[52px] rounded-[18px] flex items-center justify-center flex-shrink-0"
+               style="background:linear-gradient(145deg,#FFD54F,#FF9F43);box-shadow:0 6px 18px rgba(255,213,79,0.35);">
+            <i class="fa-solid fa-briefcase text-white text-xl"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-extrabold text-white text-[17px]">Interview Mode</h3>
+              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full" style="background:rgba(255,213,79,0.14);color:#FFD54F;">💼 PRO</span>
+            </div>
+            <p class="text-white/45 text-[13px] mt-1 leading-relaxed">High-accuracy with confidence scoring. Auto Key-Points summary. PDF export.</p>
+            <div class="flex gap-3 mt-2.5 flex-wrap">
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-clock mr-1"></i>15–60 min</span>
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-chart-bar mr-1"></i>Confidence</span>
+              <span class="text-white/30 text-[11px]"><i class="fa-solid fa-file-export mr-1"></i>PDF</span>
+            </div>
+          </div>
+          <i class="fa-solid fa-chevron-right text-white/20 text-sm mt-1 flex-shrink-0"></i>
+        </div>
+      </div>
+
+      <!-- Recent sessions -->
+      <div class="pt-1">
+        <div class="flex items-center justify-between mb-2.5">
+          <p class="text-white/30 text-[10px] font-bold uppercase tracking-[3px]">Recent Sessions</p>
+          <button onclick="go('sHistory')" class="text-accent-light text-[12px] font-bold">View All</button>
+        </div>
+        <div class="glass rounded-2xl overflow-hidden">
+          <div class="hist-row px-4 py-3.5 flex items-center gap-3" onclick="go('sHistory')">
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(108,99,255,0.18);">
+              <i class="fa-solid fa-graduation-cap text-accent-light text-xs"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-semibold text-white truncate">HCI Lecture — Week 11</p>
+              <p class="text-[11px] text-white/30 mt-0.5">Today, 14:00 · 72 min · 4,821 words</p>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0" style="background:rgba(108,99,255,0.18);color:#BB86FC;">Saved</span>
+          </div>
+          <div class="hist-row px-4 py-3.5 flex items-center gap-3" onclick="go('sHistory')">
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(3,218,198,0.12);">
+              <i class="fa-solid fa-comments text-active text-xs"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-semibold text-white truncate">Café – Study Group</p>
+              <p class="text-[11px] text-white/30 mt-0.5">Yesterday · 18 min · 3 speakers</p>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0" style="background:rgba(207,102,121,0.15);color:#CF6679;">Deleted</span>
+          </div>
+          <div class="hist-row px-4 py-3.5 flex items-center gap-3 border-b-0" onclick="go('sHistory')">
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(255,213,79,0.12);">
+              <i class="fa-solid fa-briefcase text-yellow-300 text-xs"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-semibold text-white truncate">HR Interview – TechCorp</p>
+              <p class="text-[11px] text-white/30 mt-0.5">Monday · 45 min · PDF exported</p>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0" style="background:rgba(3,218,198,0.12);color:#03DAC6;">Exported</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom nav -->
+    <div class="glass flex-shrink-0 flex items-center justify-around px-5 py-3" style="border-top:1px solid rgba(255,255,255,0.05);">
+      <button class="nav-b flex flex-col items-center gap-1 text-accent-light">
+        <i class="fa-solid fa-house text-base"></i>
+        <span class="text-[10px] font-bold">Home</span>
+      </button>
+      <button onclick="go('sHistory')" class="nav-b flex flex-col items-center gap-1 text-white/30">
+        <i class="fa-solid fa-clock-rotate-left text-base"></i>
+        <span class="text-[10px] font-semibold">History</span>
+      </button>
+      <button onclick="go('sSettings')" class="nav-b flex flex-col items-center gap-1 text-white/30">
+        <i class="fa-solid fa-sliders text-base"></i>
+        <span class="text-[10px] font-semibold">Settings</span>
+      </button>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       LECTURE MODE
+  ══════════════════════════════ -->
+  <div id="sLecture" class="screen">
+    <!-- Top bar -->
+    <div class="pt-10 px-4 pb-2.5 flex items-center justify-between flex-shrink-0" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+      <button onclick="stopSession()" class="w-9 h-9 rounded-xl glass flex items-center justify-center">
+        <i class="fa-solid fa-xmark text-white/55 text-sm"></i>
+      </button>
+      <div class="flex flex-col items-center">
+        <div class="flex items-center gap-1.5">
+          <div class="w-2 h-2 rounded-full bg-active animate-pulse"></div>
+          <span class="text-[11px] font-extrabold text-active tracking-widest uppercase">Lecture Mode</span>
+        </div>
+        <div class="flex gap-2 mt-0.5 text-[10px] text-white/30">
+          <span id="lTimer">00:00</span>
+          <span>·</span>
+          <span id="lWords">0 words</span>
+        </div>
+      </div>
+      <button id="lPauseBtn" class="w-9 h-9 rounded-xl glass flex items-center justify-center" onclick="lTogglePause()">
+        <i class="fa-solid fa-pause text-white/55 text-sm"></i>
+      </button>
+    </div>
+
+    <!-- Waveform -->
+    <div id="lWave" class="flex items-end justify-center gap-[3px] py-3 px-6 h-14 flex-shrink-0"></div>
+
+    <!-- Transcript -->
+    <div id="lTx" class="flex-1 t-scroll px-5 pb-3 space-y-3" style="font-size:var(--txsz,20px);">
+      <p class="text-white/20 text-[13px] italic">Session started — <span class="text-active font-semibold">Listening…</span></p>
+    </div>
+
+    <!-- Controls -->
+    <div class="glass px-5 py-3.5 flex-shrink-0 flex items-center justify-between gap-2" style="border-top:1px solid rgba(255,255,255,0.05);">
+      <button onclick="adjFont(-2)" class="w-10 h-10 rounded-xl glass flex items-center justify-center" title="Decrease font">
+        <span class="text-white/50 text-xs font-bold">A−</span>
+      </button>
+      <button onclick="adjFont(2)" class="w-10 h-10 rounded-xl glass flex items-center justify-center" title="Increase font">
+        <span class="text-white/50 text-base font-bold">A+</span>
+      </button>
+      <button onclick="doExport()" class="flex items-center gap-1.5 px-3.5 h-10 rounded-xl" style="background:rgba(108,99,255,0.2);border:1px solid rgba(108,99,255,0.3);">
+        <i class="fa-solid fa-download text-accent-light text-[11px]"></i>
+        <span class="text-accent-light text-[12px] font-bold">Export</span>
+      </button>
+      <button id="kwBtn" onclick="toggleKW()" class="flex items-center gap-1.5 px-3.5 h-10 rounded-xl" style="background:rgba(3,218,198,0.12);border:1px solid rgba(3,218,198,0.22);">
+        <i class="fa-solid fa-highlighter text-active text-[11px]"></i>
+        <span class="text-active text-[12px] font-bold">Keywords</span>
+      </button>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       CONVERSATION MODE
+  ══════════════════════════════ -->
+  <div id="sConversation" class="screen">
+    <!-- Top bar -->
+    <div class="pt-10 px-4 pb-2.5 flex items-center justify-between flex-shrink-0" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+      <button onclick="stopSession()" class="w-9 h-9 rounded-xl glass flex items-center justify-center">
+        <i class="fa-solid fa-xmark text-white/55 text-sm"></i>
+      </button>
+      <div class="flex flex-col items-center">
+        <div class="flex items-center gap-1.5">
+          <div class="w-2 h-2 rounded-full bg-active animate-pulse"></div>
+          <span class="text-[11px] font-extrabold text-active tracking-widest uppercase">Conversation</span>
+        </div>
+        <div class="flex gap-2 mt-0.5 text-[10px]">
+          <span class="text-white/30" id="cTimer">00:00</span>
+          <span class="text-white/20">·</span>
+          <span class="font-bold" style="color:#82B1FF;">3 speakers</span>
+        </div>
+      </div>
+      <button id="privBtn" onclick="togglePrivacy()" class="w-9 h-9 rounded-xl glass flex items-center justify-center" title="Privacy mode">
+        <i class="fa-solid fa-user-secret text-white/40 text-sm" id="privIcon"></i>
+      </button>
+    </div>
+
+    <!-- Speaker legend -->
+    <div class="flex items-center gap-4 px-5 py-2 flex-shrink-0">
+      <div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full" style="background:#82B1FF;"></div><span class="text-[11px] text-white/45 font-medium">Nour</span></div>
+      <div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full" style="background:#FFD54F;"></div><span class="text-[11px] text-white/45 font-medium">Prof. Ali</span></div>
+      <div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full" style="background:#A5D6A7;"></div><span class="text-[11px] text-white/45 font-medium">Classmate</span></div>
+    </div>
+
+    <!-- Bubbles -->
+    <div id="cTx" class="flex-1 t-scroll px-4 py-2 space-y-3.5">
+      <div class="animate-slide-r">
+        <p class="text-[10px] font-bold mb-1" style="color:#82B1FF;">Nour</p>
+        <div class="bub-a rounded-[18px] rounded-tl-sm px-4 py-3 max-w-[82%]">
+          <p class="text-[15px] leading-relaxed text-white/88">Hi Professor, could you explain the difference between HCI and UX again?</p>
+          <p class="text-[10px] text-white/25 mt-1.5">14:02</p>
+        </div>
+      </div>
+      <div class="animate-slide-l flex flex-col items-end">
+        <p class="text-[10px] font-bold mb-1 text-right" style="color:#FFD54F;">Prof. Ali</p>
+        <div class="bub-b rounded-[18px] rounded-tr-sm px-4 py-3 max-w-[82%]">
+          <p class="text-[15px] leading-relaxed text-white/88">Great question! HCI is the academic study, while UX is the professional design practice built on it.</p>
+          <p class="text-[10px] text-white/25 mt-1.5">14:02</p>
+        </div>
+      </div>
+      <div class="animate-slide-r">
+        <p class="text-[10px] font-bold mb-1" style="color:#A5D6A7;">Classmate</p>
+        <div class="bub-c rounded-[18px] rounded-tl-sm px-4 py-3 max-w-[82%]">
+          <p class="text-[15px] leading-relaxed text-white/88">So HCI came first and UX evolved from it?</p>
+          <p class="text-[10px] text-white/25 mt-1.5">14:03</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mini wave -->
+    <div id="cWave" class="flex items-end justify-center gap-[3px] h-8 px-4 flex-shrink-0"></div>
+
+    <!-- Controls -->
+    <div class="glass px-5 py-3.5 flex-shrink-0 flex items-center gap-3" style="border-top:1px solid rgba(255,255,255,0.05);">
+      <button class="flex-1 h-11 rounded-2xl glass flex items-center justify-center gap-2 text-white/35">
+        <i class="fa-solid fa-reply text-sm"></i>
+        <span class="text-[12px] font-semibold">Quick Reply</span>
+      </button>
+      <button onclick="cTogglePause()" id="cMicBtn"
+        class="w-[60px] h-[60px] rounded-full flex items-center justify-center relative flex-shrink-0"
+        style="background:linear-gradient(145deg,#03DAC6,#00A896);box-shadow:0 0 28px rgba(3,218,198,0.4);">
+        <div class="mic-ring"></div>
+        <i class="fa-solid fa-microphone text-white text-xl" id="cMicI"></i>
+      </button>
+      <button onclick="doExport()" class="flex-1 h-11 rounded-2xl glass flex items-center justify-center gap-2 text-white/35">
+        <i class="fa-solid fa-share-nodes text-sm"></i>
+        <span class="text-[12px] font-semibold">Share</span>
+      </button>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       INTERVIEW MODE
+  ══════════════════════════════ -->
+  <div id="sInterview" class="screen">
+    <!-- Top bar -->
+    <div class="pt-10 px-4 pb-2.5 flex items-center justify-between flex-shrink-0" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+      <button onclick="stopSession()" class="w-9 h-9 rounded-xl glass flex items-center justify-center">
+        <i class="fa-solid fa-xmark text-white/55 text-sm"></i>
+      </button>
+      <div class="flex flex-col items-center">
+        <div class="flex items-center gap-1.5">
+          <div class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div>
+          <span class="text-[11px] font-extrabold tracking-widest uppercase" style="color:#FFD54F;">Interview Mode</span>
+        </div>
+        <div class="flex gap-2 mt-0.5 text-[10px] text-white/30">
+          <span id="iTimer">00:00</span><span>·</span><span id="iWords">0 words</span>
+        </div>
+      </div>
+      <button onclick="doExport()" class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:rgba(255,213,79,0.12);border:1px solid rgba(255,213,79,0.22);">
+        <i class="fa-solid fa-file-export text-yellow-300 text-sm"></i>
+      </button>
+    </div>
+
+    <!-- Confidence strip -->
+    <div class="px-4 pt-3 pb-2 flex-shrink-0">
+      <div class="glass rounded-2xl px-4 py-3 flex items-center gap-4">
+        <div class="flex-1">
+          <div class="flex justify-between items-center mb-1">
+            <span class="text-[10px] font-bold text-white/35 uppercase tracking-widest">Accuracy</span>
+            <span class="text-[11px] font-extrabold" style="color:#FFD54F;" id="confLbl">96%</span>
+          </div>
+          <div class="h-1.5 w-full rounded-full" style="background:rgba(255,255,255,0.07);">
+            <div id="confBar" class="c-bar" style="width:96%;"></div>
+          </div>
+        </div>
+        <div class="w-px h-8 bg-white/8 flex-shrink-0"></div>
+        <div class="text-center flex-shrink-0">
+          <p class="text-[10px] text-white/35 uppercase tracking-wider">Save</p>
+          <p class="text-[11px] font-extrabold text-active mt-0.5">Always</p>
+        </div>
+        <div class="w-px h-8 bg-white/8 flex-shrink-0"></div>
+        <div class="text-center flex-shrink-0">
+          <p class="text-[10px] text-white/35 uppercase tracking-wider">Mode</p>
+          <p class="text-[11px] font-extrabold text-yellow-300 mt-0.5">Pro</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transcript -->
+    <div id="iTx" class="flex-1 t-scroll px-4 pb-3 space-y-3.5" style="font-size:var(--txsz,19px);">
+      <p class="text-white/20 text-[13px] italic">Interview started — <span style="color:#FFD54F;font-weight:700;">Recording…</span></p>
+    </div>
+
+    <!-- Controls -->
+    <div class="glass px-5 py-3.5 flex-shrink-0 flex items-center gap-3" style="border-top:1px solid rgba(255,255,255,0.05);">
+      <button onclick="showSummary()" class="flex-1 h-11 rounded-2xl flex items-center justify-center gap-2" style="background:rgba(255,213,79,0.1);border:1px solid rgba(255,213,79,0.18);">
+        <i class="fa-solid fa-list-check text-yellow-300 text-sm"></i>
+        <span class="text-yellow-300 text-[12px] font-bold">Key Points</span>
+      </button>
+      <button onclick="iTogglePause()" id="iMicBtn"
+        class="w-[60px] h-[60px] rounded-full flex items-center justify-center relative flex-shrink-0"
+        style="background:linear-gradient(145deg,#FFD54F,#FF9F43);box-shadow:0 0 28px rgba(255,213,79,0.4);">
+        <div class="mic-ring-y"></div>
+        <i class="fa-solid fa-microphone text-white text-xl" id="iMicI"></i>
+      </button>
+      <button onclick="doExport()" class="flex-1 h-11 rounded-2xl flex items-center justify-center gap-2" style="background:rgba(108,99,255,0.12);border:1px solid rgba(108,99,255,0.2);">
+        <i class="fa-solid fa-download text-accent-light text-sm"></i>
+        <span class="text-accent-light text-[12px] font-bold">Export PDF</span>
+      </button>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       SETTINGS
+  ══════════════════════════════ -->
+  <div id="sSettings" class="screen">
+    <div class="pt-10 px-5 pb-4 flex items-center gap-3 flex-shrink-0" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+      <button onclick="go('sHome')" class="w-9 h-9 rounded-xl glass flex items-center justify-center">
+        <i class="fa-solid fa-chevron-left text-white/55 text-sm"></i>
+      </button>
+      <h2 class="text-[22px] font-extrabold">Settings</h2>
+    </div>
+
+    <div class="flex-1 t-scroll px-5 py-4 space-y-5">
+
+      <div>
+        <p class="text-white/30 text-[10px] font-bold uppercase tracking-[3px] mb-3">Appearance</p>
+        <div class="glass rounded-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-4 border-b border-white/[0.04]">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(108,99,255,0.18);"><i class="fa-solid fa-moon text-accent-light text-xs"></i></div>
+              <span class="text-[14px] font-semibold">Dark Mode</span>
+            </div>
+            <div class="tog-track on" onclick="toggleLM(this)"><div class="tog-thumb"></div></div>
+          </div>
+          <div class="flex items-center justify-between px-4 py-4 border-b border-white/[0.04]">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(108,99,255,0.18);"><i class="fa-solid fa-text-height text-accent-light text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Font Size</p>
+                <p class="text-white/30 text-[11px]" id="fontLbl">20px (default)</p>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="adjFont(-2)" class="w-8 h-8 rounded-lg glass flex items-center justify-center text-white/50 text-sm font-bold">−</button>
+              <button onclick="adjFont(2)" class="w-8 h-8 rounded-lg glass flex items-center justify-center text-white/50 text-sm font-bold">+</button>
+            </div>
+          </div>
+          <div class="flex items-center justify-between px-4 py-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(108,99,255,0.18);"><i class="fa-solid fa-circle-half-stroke text-accent-light text-xs"></i></div>
+              <span class="text-[14px] font-semibold">High Contrast</span>
+            </div>
+            <div class="tog-track" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="text-white/30 text-[10px] font-bold uppercase tracking-[3px] mb-3">Audio & Transcription</p>
+        <div class="glass rounded-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-4 border-b border-white/[0.04]">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(3,218,198,0.14);"><i class="fa-solid fa-wave-square text-active text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Noise Cancellation</p>
+                <p class="text-white/30 text-[11px]">Directional mic filter</p>
+              </div>
+            </div>
+            <div class="tog-track on" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+          <div class="flex items-center justify-between px-4 py-4 border-b border-white/[0.04]">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(3,218,198,0.14);"><i class="fa-solid fa-users text-active text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Speaker Diarization</p>
+                <p class="text-white/30 text-[11px]">Color-coded speaker labels</p>
+              </div>
+            </div>
+            <div class="tog-track on" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+          <div class="flex items-center justify-between px-4 py-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(3,218,198,0.14);"><i class="fa-solid fa-highlighter text-active text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Keyword Highlights</p>
+                <p class="text-white/30 text-[11px]">Technical terms auto-detected</p>
+              </div>
+            </div>
+            <div class="tog-track on" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="text-white/30 text-[10px] font-bold uppercase tracking-[3px] mb-3">Feedback & Alerts</p>
+        <div class="glass rounded-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-4 border-b border-white/[0.04]">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(207,102,121,0.18);"><i class="fa-solid fa-mobile-screen text-warn text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Haptic Feedback</p>
+                <p class="text-white/30 text-[11px]">Vibrate on speaker change</p>
+              </div>
+            </div>
+            <div class="tog-track on" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+          <div class="flex items-center justify-between px-4 py-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(207,102,121,0.18);"><i class="fa-solid fa-bell-slash text-warn text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Discreet Alerts</p>
+                <p class="text-white/30 text-[11px]">Screen flash instead of sound</p>
+              </div>
+            </div>
+            <div class="tog-track on" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="text-white/30 text-[10px] font-bold uppercase tracking-[3px] mb-3">Privacy & Data</p>
+        <div class="glass rounded-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-4 border-b border-white/[0.04]">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(108,99,255,0.18);"><i class="fa-solid fa-user-secret text-accent-light text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Auto-delete (Conv. Mode)</p>
+                <p class="text-white/30 text-[11px]">Erase after session ends</p>
+              </div>
+            </div>
+            <div class="tog-track" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+          <div class="flex items-center justify-between px-4 py-4">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-xl flex items-center justify-center" style="background:rgba(108,99,255,0.18);"><i class="fa-solid fa-cloud-arrow-up text-accent-light text-xs"></i></div>
+              <div>
+                <p class="text-[14px] font-semibold">Auto-save every 30s</p>
+                <p class="text-white/30 text-[11px]">Prevents data loss</p>
+              </div>
+            </div>
+            <div class="tog-track on" onclick="togThis(this)"><div class="tog-thumb"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- About card -->
+      <div class="glass rounded-2xl p-4 flex items-center gap-4 mb-4">
+        <div class="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+             style="background:linear-gradient(145deg,#6C63FF,#03DAC6);">
+          <i class="fa-solid fa-ear-listen text-white text-xl"></i>
+        </div>
+        <div>
+          <p class="font-extrabold text-white">EchoScribe</p>
+          <p class="text-white/35 text-[12px] pb-1">v2.4.1 · HCI Final Project 2026</p>
+          <p class="text-white/35 text-[12px]">by Sherif Khoga · 210209461</p>
+          <p class="text-white/20 text-[11px] mt-0.5">Built for the hearing-impaired community</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       HISTORY
+  ══════════════════════════════ -->
+  <div id="sHistory" class="screen">
+    <div class="pt-10 px-5 pb-4 flex items-center gap-3 flex-shrink-0" style="border-bottom:1px solid rgba(255,255,255,0.05);">
+      <button onclick="go('sHome')" class="w-9 h-9 rounded-xl glass flex items-center justify-center">
+        <i class="fa-solid fa-chevron-left text-white/55 text-sm"></i>
+      </button>
+      <h2 class="text-[22px] font-extrabold flex-1">History</h2>
+      <button class="w-9 h-9 rounded-xl glass flex items-center justify-center" onclick="go('sFilterModal')">
+        <i class="fa-solid fa-arrow-down-wide-short text-white/55 text-sm"></i>
+      </button>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="px-5 pt-4 flex-shrink-0">
+      <div class="glass rounded-xl flex items-center px-4 py-2.5 gap-3 border border-white/[0.05] focus-within:border-accent-light/50 transition-colors">
+        <i class="fa-solid fa-magnifying-glass text-white/30 text-sm"></i>
+        <input type="text" placeholder="Search transcripts, keywords, or dates..." class="bg-transparent border-none outline-none text-white text-[13px] w-full placeholder-white/30" />
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="px-5 pt-3 pb-3 flex-shrink-0 grid grid-cols-3 gap-3">
+      <div class="glass rounded-2xl p-3 text-center">
+        <p class="text-2xl font-black text-white">12</p>
+        <p class="text-[10px] text-white/30 mt-0.5 font-semibold">Sessions</p>
+      </div>
+      <div class="glass rounded-2xl p-3 text-center">
+        <p class="text-2xl font-black grad">32h</p>
+        <p class="text-[10px] text-white/30 mt-0.5 font-semibold">Total</p>
+      </div>
+      <div class="glass rounded-2xl p-3 text-center">
+        <p class="text-2xl font-black" style="color:#03DAC6;">98K</p>
+        <p class="text-[10px] text-white/30 mt-0.5 font-semibold">Words</p>
+      </div>
+    </div>
+
+    <div class="flex-1 t-scroll px-5 pb-5 space-y-2">
+
+      <p class="text-white/25 text-[10px] font-bold uppercase tracking-[3px] pt-2 pb-1">Today</p>
+
+      <div class="glass rounded-2xl p-4 cursor-pointer" onclick="toast('Opening session…')">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(145deg,#6C63FF,#BB86FC);">
+            <i class="fa-solid fa-graduation-cap text-white text-sm"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <p class="font-extrabold text-white text-[14px]">HCI Lecture — Week 11</p>
+              <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ml-2" style="background:rgba(108,99,255,0.18);color:#BB86FC;">PDF</span>
+            </div>
+            <p class="text-white/35 text-[12px] mt-0.5">Today · 14:00–15:15 · 72 min</p>
+            <div class="flex gap-3 mt-1.5 text-[11px] text-white/30 flex-wrap">
+              <span><i class="fa-solid fa-font mr-1"></i>4,821 words</span>
+              <span><i class="fa-solid fa-tag mr-1"></i>HCI, Design, Usability</span>
+            </div>
+            <div class="flex gap-2 mt-3">
+              <button onclick="toast('Transcript opened')" class="px-3 py-1.5 rounded-lg text-[12px] font-bold" style="background:rgba(108,99,255,0.18);color:#BB86FC;">View</button>
+              <button onclick="doExport()" class="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style="background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.4);">Export</button>
+              <button onclick="toast('Session deleted')" class="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style="background:rgba(207,102,121,0.12);color:#CF6679;">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-white/25 text-[10px] font-bold uppercase tracking-[3px] pt-3 pb-1">Yesterday</p>
+
+      <div class="glass rounded-2xl p-4 cursor-pointer" onclick="toast('Session had privacy mode — transcript deleted')">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(145deg,#03DAC6,#00A896);">
+            <i class="fa-solid fa-comments text-white text-sm"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <p class="font-extrabold text-white text-[14px]">Café – Study Group</p>
+              <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ml-2" style="background:rgba(207,102,121,0.14);color:#CF6679;">Deleted</span>
+            </div>
+            <p class="text-white/35 text-[12px] mt-0.5">Yesterday · 16:40–16:58 · 18 min</p>
+            <div class="flex gap-3 mt-1.5 text-[11px] text-white/30">
+              <span><i class="fa-solid fa-users mr-1"></i>3 speakers</span>
+              <span><i class="fa-solid fa-shield mr-1"></i>Privacy ON</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-white/25 text-[10px] font-bold uppercase tracking-[3px] pt-3 pb-1">Monday, Jun 9</p>
+
+      <div class="glass rounded-2xl p-4 cursor-pointer" onclick="toast('Opening session…')">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(145deg,#FFD54F,#FF9F43);">
+            <i class="fa-solid fa-briefcase text-white text-sm"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <p class="font-extrabold text-white text-[14px]">HR Interview – TechCorp</p>
+              <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ml-2" style="background:rgba(3,218,198,0.14);color:#03DAC6;">✓ Exported</span>
+            </div>
+            <p class="text-white/35 text-[12px] mt-0.5">Monday · 10:00–10:45 · 45 min</p>
+            <div class="flex gap-3 mt-1.5 text-[11px] text-white/30 flex-wrap">
+              <span><i class="fa-solid fa-font mr-1"></i>6,102 words</span>
+              <span><i class="fa-solid fa-chart-bar mr-1"></i>97% avg. accuracy</span>
+            </div>
+            <div class="flex gap-2 mt-3">
+              <button onclick="toast('Transcript opened')" class="px-3 py-1.5 rounded-lg text-[12px] font-bold" style="background:rgba(255,213,79,0.14);color:#FFD54F;">View</button>
+              <button onclick="doExport()" class="px-3 py-1.5 rounded-lg text-[12px] font-semibold" style="background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.4);">Re-export</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-4 cursor-pointer" onclick="toast('Opening session…')">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(145deg,#6C63FF,#BB86FC);">
+            <i class="fa-solid fa-graduation-cap text-white text-sm"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between">
+              <p class="font-extrabold text-white text-[14px]">Software Eng. — Week 10</p>
+              <span class="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ml-2" style="background:rgba(108,99,255,0.18);color:#BB86FC;">TXT</span>
+            </div>
+            <p class="text-white/35 text-[12px] mt-0.5">Monday · 08:00–09:15 · 70 min</p>
+            <div class="flex gap-3 mt-1.5 text-[11px] text-white/30 flex-wrap">
+              <span><i class="fa-solid fa-font mr-1"></i>5,308 words</span>
+              <span><i class="fa-solid fa-tag mr-1"></i>Agile, CI/CD, Testing</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════
+       SUMMARY MODAL
+  ══════════════════════════════ -->
+  <div id="sSummary" class="screen justify-end" style="background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);">
+    <div class="w-full glass rounded-t-[36px] px-5 pt-6 pb-10 animate-fade-up" style="border-top:1px solid rgba(255,255,255,0.08);">
+      <div class="w-10 h-1 bg-white/15 rounded-full mx-auto mb-5"></div>
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-11 h-11 rounded-2xl flex items-center justify-center" style="background:rgba(255,213,79,0.15);">
+          <i class="fa-solid fa-list-check text-yellow-300 text-base"></i>
+        </div>
+        <div>
+          <h3 class="font-extrabold text-white text-[18px]">Key Points Summary</h3>
+          <p class="text-white/35 text-[12px]">Auto-generated · Interview Mode</p>
+        </div>
+      </div>
+      <div class="space-y-3">
+        <div class="flex items-start gap-3 p-3.5 rounded-2xl" style="background:rgba(255,213,79,0.07);border:1px solid rgba(255,213,79,0.14);">
+          <i class="fa-solid fa-circle-dot text-yellow-300 text-xs mt-1 flex-shrink-0"></i>
+          <p class="text-[13px] text-white/78 leading-relaxed">Candidate demonstrated strong understanding of <span class="kw">system design</span> and <span class="kw">distributed architecture</span>.</p>
+        </div>
+        <div class="flex items-start gap-3 p-3.5 rounded-2xl" style="background:rgba(255,213,79,0.07);border:1px solid rgba(255,213,79,0.14);">
+          <i class="fa-solid fa-circle-dot text-yellow-300 text-xs mt-1 flex-shrink-0"></i>
+          <p class="text-[13px] text-white/78 leading-relaxed">Experience with <span class="kw">agile methodologies</span> and cross-functional team leadership confirmed.</p>
+        </div>
+        <div class="flex items-start gap-3 p-3.5 rounded-2xl" style="background:rgba(255,213,79,0.07);border:1px solid rgba(255,213,79,0.14);">
+          <i class="fa-solid fa-circle-dot text-yellow-300 text-xs mt-1 flex-shrink-0"></i>
+          <p class="text-[13px] text-white/78 leading-relaxed">Availability: <span class="kw">2-week notice period</span>. Salary expectation aligned with market rate.</p>
+        </div>
+        <div class="flex items-start gap-3 p-3.5 rounded-2xl" style="background:rgba(3,218,198,0.07);border:1px solid rgba(3,218,198,0.14);">
+          <i class="fa-solid fa-circle-check text-active text-xs mt-1 flex-shrink-0"></i>
+          <p class="text-[13px] text-white/78 leading-relaxed"><strong>Next step:</strong> Technical round scheduled for next Tuesday at 10:00.</p>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-5">
+        <button onclick="go('sInterview')" class="flex-1 h-12 rounded-2xl glass text-white/55 text-[14px] font-bold">
+          Close
+        </button>
+        <button onclick="doExport();go('sInterview');"
+          class="flex-1 h-12 rounded-2xl text-white text-[14px] font-extrabold"
+          style="background:linear-gradient(135deg,#FFD54F,#FF9F43);">
+          Export PDF
+        </button>
+      </div>
+    </div>
+  </div>
+  <!-- ================= FILTER MODAL ================= -->
+  <div id="sFilterModal" class="screen justify-end" style="background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);">
+    <div class="w-full glass rounded-t-[36px] px-5 pt-6 pb-10 animate-fade-up" style="border-top:1px solid rgba(255,255,255,0.08);">
+      <div class="w-10 h-1 bg-white/15 rounded-full mx-auto mb-5"></div>
+      <div class="flex items-center gap-3 mb-5">
+        <div class="w-11 h-11 rounded-2xl flex items-center justify-center" style="background:rgba(3,218,198,0.15);">
+          <i class="fa-solid fa-filter text-active text-base"></i>
+        </div>
+        <div>
+          <h3 class="font-extrabold text-white text-[18px]">Filter History</h3>
+          <p class="text-white/35 text-[12px]">Sort and filter your saved sessions</p>
+        </div>
+      </div>
+      
+      <div class="space-y-4">
+        <!-- Filter by Mode -->
+        <div>
+          <p class="text-white/30 text-[10px] font-bold uppercase tracking-[2px] mb-2">Filter by Mode</p>
+          <div class="flex gap-2 flex-wrap">
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white border border-accent-light bg-accent-light/20">All</button>
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white/50 border border-white/10" onclick="this.classList.toggle('bg-accent-light/20'); this.classList.toggle('text-white'); this.classList.toggle('border-accent-light');">Lecture</button>
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white/50 border border-white/10" onclick="this.classList.toggle('bg-accent-light/20'); this.classList.toggle('text-white'); this.classList.toggle('border-accent-light');">Conversation</button>
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white/50 border border-white/10" onclick="this.classList.toggle('bg-accent-light/20'); this.classList.toggle('text-white'); this.classList.toggle('border-accent-light');">Interview</button>
+          </div>
+        </div>
+
+        <!-- Filter by Time -->
+        <div>
+          <p class="text-white/30 text-[10px] font-bold uppercase tracking-[2px] mb-2">Filter by Time</p>
+          <div class="flex gap-2 flex-wrap">
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white border border-accent-light bg-accent-light/20">Anytime</button>
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white/50 border border-white/10" onclick="this.classList.toggle('bg-accent-light/20'); this.classList.toggle('text-white'); this.classList.toggle('border-accent-light');">Today</button>
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white/50 border border-white/10" onclick="this.classList.toggle('bg-accent-light/20'); this.classList.toggle('text-white'); this.classList.toggle('border-accent-light');">This Week</button>
+            <button class="px-4 py-2 rounded-xl text-[12px] font-bold text-white/50 border border-white/10" onclick="this.classList.toggle('bg-accent-light/20'); this.classList.toggle('text-white'); this.classList.toggle('border-accent-light');">Older</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex gap-3 mt-6">
+        <button onclick="go('sHistory')" class="flex-1 h-12 rounded-2xl glass text-white/55 text-[14px] font-bold">
+          Cancel
+        </button>
+        <button onclick="go('sHistory'); toast('Filters applied successfully');"
+          class="flex-1 h-12 rounded-2xl text-white text-[14px] font-extrabold"
+          style="background:linear-gradient(135deg,#03DAC6,#018786);">
+          Apply Filters
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /phone -->
+
+
+<!-- ════════════════════════════════════
+     JS — State, Simulation, Interaction
+════════════════════════════════════ -->
+<script>
+/* ─── Globals ─── */
+let curMode    = null;
+let paused     = false;
+let secs       = 0;
+let wc         = 0;
+let kwOn       = true;
+let privOn     = false;
+let txSize     = 20;
+let timerId    = null;
+let simTimer   = null;
+let lIdx=0, cIdx=0, iIdx=0;
+
+/* ─── Clock ─── */
+const clockEl = document.getElementById('clockEl');
+function tick() {
+  const n = new Date();
+  clockEl.textContent = String(n.getHours()).padStart(2,'0') + ':' + String(n.getMinutes()).padStart(2,'0');
+}
+tick(); setInterval(tick, 5000);
+
+/* ─── Navigation ─── */
+function go(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+/* ─── Splash → Onboarding ─── */
+setTimeout(() => go('sOnboard'), 2400);
+
+/* ─── Onboarding ─── */
+let obI = 0;
+function obNext() {
+  const slides = document.querySelectorAll('.ob-slide');
+  const dots   = document.querySelectorAll('.ob-dot');
+  slides[obI].classList.add('hidden');
+  obI++;
+  if (obI >= slides.length) { go('sHome'); return; }
+  const s = slides[obI];
+  s.classList.remove('hidden');
+  s.classList.add('animate-fade-up');
+  dots.forEach((d,i) => d.classList.toggle('on', i===obI));
+  if (obI === slides.length-1) document.getElementById('obBtn').textContent = 'Get Started';
+}
+
+/* ─── Toast ─── */
+const toastEl  = document.getElementById('toast');
+const toastMsg = document.getElementById('toastMsg');
+let toastTO;
+function toast(msg) {
+  toastMsg.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTO);
+  toastTO = setTimeout(() => toastEl.classList.remove('show'), 2600);
+}
+
+/* ─── Waveform ─── */
+function buildWave(id, n=20) {
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.innerHTML='';
+  for(let i=0;i<n;i++){
+    const b=document.createElement('div');
+    b.className='wave-bar';
+    const h = 10 + Math.random()*24;
+    b.style.height = h+'px';
+    b.style.setProperty('--dur',(0.4+Math.random()*0.7).toFixed(2)+'s');
+    b.style.animationDelay = (Math.random()*0.5).toFixed(2)+'s';
+    el.appendChild(b);
+  }
+}
+
+/* ─── Start mode ─── */
+function startMode(mode) {
+  curMode=mode; paused=false; secs=0; wc=0;
+  lIdx=0; cIdx=0; iIdx=0;
+
+  if(mode==='lecture'){
+    document.getElementById('lTx').innerHTML='<p class="text-white/20 text-[13px] italic">Session started — <span class="text-active font-semibold">Listening…</span></p>';
+    go('sLecture');
+    buildWave('lWave',22);
+    lAppend();
+    simTimer=setInterval(()=>{ if(!paused && lIdx<LECTURE.length) lAppend(); },4500);
+  } else if(mode==='conversation'){
+    go('sConversation');
+    buildWave('cWave',16);
+    simTimer=setInterval(()=>{ if(!paused && cIdx<CONV.length) cAppend(); },4200);
+  } else if(mode==='interview'){
+    document.getElementById('iTx').innerHTML='<p class="text-white/20 text-[13px] italic">Interview started — <span style="color:#FFD54F;font-weight:700;">Recording…</span></p>';
+    go('sInterview');
+    iAppend();
+    simTimer=setInterval(()=>{ if(!paused && iIdx<INTERVIEW.length) iAppend(); },5200);
+  }
+
+  clearInterval(timerId);
+  timerId=setInterval(()=>{
+    if(!paused){
+      secs++;
+      const t=pad(Math.floor(secs/60))+':'+pad(secs%60);
+      if(mode==='lecture')      { document.getElementById('lTimer').textContent=t; }
+      if(mode==='conversation') { document.getElementById('cTimer').textContent=t; }
+      if(mode==='interview')    { document.getElementById('iTimer').textContent=t; }
+    }
+  },1000);
+}
+
+function pad(n){return String(n).padStart(2,'0');}
+
+/* ─── Stop ─── */
+function stopSession(){
+  clearInterval(timerId); clearInterval(simTimer);
+  toast('Session saved successfully ✓');
+  setTimeout(()=>go('sHome'),280);
+}
+
+/* ─── Pause helpers ─── */
+function lTogglePause(){
+  paused=!paused;
+  const i=document.querySelector('#lPauseBtn i');
+  i.className=paused?'fa-solid fa-play text-white/55 text-sm':'fa-solid fa-pause text-white/55 text-sm';
+  toast(paused?'Paused':'Resumed');
+}
+function cTogglePause(){
+  paused=!paused;
+  document.getElementById('cMicI').className=paused?'fa-solid fa-microphone-slash text-white text-xl':'fa-solid fa-microphone text-white text-xl';
+  toast(paused?'Mic paused':'Mic active');
+}
+function iTogglePause(){
+  paused=!paused;
+  document.getElementById('iMicI').className=paused?'fa-solid fa-microphone-slash text-white text-xl':'fa-solid fa-microphone text-white text-xl';
+  toast(paused?'Recording paused':'Recording resumed');
+}
+
+/* ─── Font ─── */
+function adjFont(d){
+  txSize=Math.max(14,Math.min(36,txSize+d));
+  document.documentElement.style.setProperty('--txsz',txSize+'px');
+  const l=document.getElementById('fontLbl');
+  if(l) l.textContent=txSize+'px'+(txSize===20?' (default)':'');
+  toast('Font size: '+txSize+'px');
+}
+
+/* ─── KW toggle ─── */
+function toggleKW(){
+  kwOn=!kwOn;
+  toast(kwOn?'Keyword highlights ON':'Keyword highlights OFF');
+}
+
+/* ─── Toggle switch ─── */
+function togThis(el){ el.classList.toggle('on'); }
+
+/* ─── Light mode ─── */
+function toggleLM(el){
+  el.classList.toggle('on');
+  document.body.classList.toggle('lm');
+  toast(document.body.classList.contains('lm')?'Light mode ON':'Dark mode ON');
+}
+
+/* ─── Privacy ─── */
+function togglePrivacy(){
+  privOn=!privOn;
+  const ic=document.getElementById('privIcon');
+  const btn=document.getElementById('privBtn');
+  if(privOn){
+    ic.className='fa-solid fa-user-secret text-active text-sm';
+    btn.style.background='rgba(3,218,198,0.18)';
+    toast('Privacy mode ON — auto-delete enabled');
+  } else {
+    ic.className='fa-solid fa-user-secret text-white/40 text-sm';
+    btn.style.background='';
+    toast('Privacy mode OFF');
+  }
+}
+
+/* ─── Export ─── */
+function doExport(){ toast('Exported as PDF ✓'); }
+
+/* ─── Summary ─── */
+function showSummary(){ go('sSummary'); }
+
+/* ══════════════════════════════
+   LECTURE DATA & SIMULATION
+══════════════════════════════ */
+const LECTURE=[
+  { t:'Today we will explore the foundational principles of Human-Computer Interaction — also known as HCI.', kw:['Human-Computer Interaction','HCI'] },
+  { t:'HCI emerged as a discipline in the 1980s, combining cognitive psychology, computer science, and graphic design.', kw:['cognitive psychology','computer science','graphic design'] },
+  { t:'The primary goal is to make technology usable, efficient, and accessible to the broadest possible range of users.', kw:['usable','efficient','accessible'] },
+  { t:'Nielsen\'s ten usability heuristics remain among the most widely cited frameworks in the entire field.', kw:['usability heuristics','Nielsen'] },
+  { t:'Heuristic number one is Visibility of System Status — the system must always keep users informed about what is happening.', kw:['Visibility of System Status'] },
+  { t:'Cognitive Load Theory, proposed by Sweller in 1988, states that human working memory is severely limited in capacity.', kw:['Cognitive Load Theory','Sweller','working memory'] },
+  { t:'Therefore, well-designed interfaces must minimize extraneous cognitive load while maximizing germane load to support learning.', kw:['extraneous cognitive load','germane load'] },
+  { t:'Universal Design for Learning advocates for multiple means of representation, action, and engagement.', kw:['Universal Design for Learning','UDL'] },
+  { t:'EchoScribe exemplifies this by providing an alternative sensory channel — converting auditory input into visual text in real time.', kw:['EchoScribe','sensory channel'] },
+  { t:'This approach aligns with Inclusive Design principles and WCAG 2.1 AAA accessibility guidelines.', kw:['Inclusive Design','WCAG 2.1'] },
+];
+
+function lAppend(){
+  if(lIdx>=LECTURE.length) return;
+  const line=LECTURE[lIdx++];
+  const area=document.getElementById('lTx');
+  const p=document.createElement('p');
+  p.className='text-white/88 leading-relaxed animate-fade-up mb-2.5';
+  p.style.fontSize='var(--txsz,20px)';
+  let html=line.t;
+  if(kwOn && line.kw) line.kw.forEach(k=>{ html=html.replace(new RegExp(k,'g'),'<span class="kw">'+k+'</span>'); });
+  p.innerHTML=html+'<span class="cursor-blink ml-1"></span>';
+  area.appendChild(p);
+  area.scrollTop=area.scrollHeight;
+  wc+=line.t.split(' ').length;
+  document.getElementById('lWords').textContent=wc.toLocaleString()+' words';
+  setTimeout(()=>{ area.querySelectorAll('.cursor-blink').forEach((c,i,a)=>{ if(i<a.length-1) c.remove(); }); },4200);
+}
+
+/* ══════════════════════════════
+   CONVERSATION DATA & SIMULATION
+══════════════════════════════ */
+const CONV=[
+  { sp:'b', name:'Prof. Ali',  cls:'bub-b', side:'end',   color:'#FFD54F', t:'Exactly! HCI is the academic theory; UX design is its professional application in products.', time:'14:04' },
+  { sp:'a', name:'Nour',       cls:'bub-a', side:'start', color:'#82B1FF', t:'Is accessibility a core part of HCI? Or is it treated separately?', time:'14:04' },
+  { sp:'b', name:'Prof. Ali',  cls:'bub-b', side:'end',   color:'#FFD54F', t:'Absolutely central. WCAG guidelines sit entirely within the HCI research tradition.', time:'14:05' },
+  { sp:'c', name:'Classmate',  cls:'bub-c', side:'start', color:'#A5D6A7', t:'What is the difference between usability and accessibility exactly?', time:'14:05' },
+  { sp:'b', name:'Prof. Ali',  cls:'bub-b', side:'end',   color:'#FFD54F', t:'Usability asks whether an average user can complete a task. Accessibility asks whether any user — regardless of ability — can complete it.', time:'14:06' },
+  { sp:'a', name:'Nour',       cls:'bub-a', side:'start', color:'#82B1FF', t:'That distinction makes EchoScribe both accessible and highly usable by design.', time:'14:06' },
+];
+
+function cAppend(){
+  if(cIdx>=CONV.length) return;
+  const m=CONV[cIdx++];
+  const area=document.getElementById('cTx');
+  const wrap=document.createElement('div');
+  wrap.className=m.side==='end'?'animate-slide-l flex flex-col items-end':'animate-slide-r';
+  const corner=m.side==='end'?'rounded-[18px] rounded-tr-sm':'rounded-[18px] rounded-tl-sm';
+  wrap.innerHTML=`
+    <p class="text-[10px] font-bold mb-1${m.side==='end'?' text-right':''}" style="color:${m.color};">${m.name}</p>
+    <div class="${m.cls} ${corner} px-4 py-3 max-w-[82%]">
+      <p class="text-[15px] leading-relaxed text-white/88">${m.t}</p>
+      <p class="text-[10px] text-white/25 mt-1.5">${m.time}</p>
+    </div>`;
+  area.appendChild(wrap);
+  area.scrollTop=area.scrollHeight;
+}
+
+/* ══════════════════════════════
+   INTERVIEW DATA & SIMULATION
+══════════════════════════════ */
+const INTERVIEW=[
+  { sp:'Interviewer', color:'#82B1FF', bg:'rgba(130,177,255,0.07)', bd:'rgba(130,177,255,0.16)', t:'Thank you for joining us. Could you walk us through your background in software engineering?', conf:98, time:'10:01' },
+  { sp:'Candidate',   color:'#FFD54F', bg:'rgba(255,213,79,0.07)',  bd:'rgba(255,213,79,0.16)',  t:'Of course. I have four years of full-stack experience, primarily with React and Node.js in Agile environments.', conf:96, time:'10:02' },
+  { sp:'Interviewer', color:'#82B1FF', bg:'rgba(130,177,255,0.07)', bd:'rgba(130,177,255,0.16)', t:'Excellent. How do you approach system design for high-traffic applications?', conf:99, time:'10:04' },
+  { sp:'Candidate',   color:'#FFD54F', bg:'rgba(255,213,79,0.07)',  bd:'rgba(255,213,79,0.16)',  t:'I start with requirements gathering, then design for scalability through microservices and load balancing.', conf:95, time:'10:06' },
+  { sp:'Interviewer', color:'#82B1FF', bg:'rgba(130,177,255,0.07)', bd:'rgba(130,177,255,0.16)', t:'Tell me about a challenging technical problem you solved under time pressure.', conf:97, time:'10:08' },
+  { sp:'Candidate',   color:'#FFD54F', bg:'rgba(255,213,79,0.07)',  bd:'rgba(255,213,79,0.16)',  t:'During a product launch we discovered a race condition in the payment service. I used distributed tracing to isolate and resolve it within two hours.', conf:94, time:'10:10' },
+];
+
+function iAppend(){
+  if(iIdx>=INTERVIEW.length) return;
+  const line=INTERVIEW[iIdx++];
+  const area=document.getElementById('iTx');
+  const wrap=document.createElement('div');
+  wrap.className='rounded-2xl p-4 animate-fade-up';
+  wrap.style.cssText=`background:${line.bg};border:1px solid ${line.bd};`;
+  wrap.innerHTML=`
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[11px] font-extrabold" style="color:${line.color};">${line.sp}</span>
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] text-white/25">${line.time}</span>
+        <span class="text-[10px] font-bold" style="color:${line.color};">${line.conf}%</span>
+        <div class="w-14 h-1.5 rounded-full" style="background:rgba(255,255,255,0.07);">
+          <div class="c-bar" style="width:${line.conf}%;"></div>
+        </div>
+      </div>
+    </div>
+    <p class="text-white/88 leading-relaxed" style="font-size:var(--txsz,19px);">${line.t}<span class="cursor-blink ml-1"></span></p>`;
+  area.appendChild(wrap);
+  area.scrollTop=area.scrollHeight;
+  wc+=line.t.split(' ').length;
+  document.getElementById('iWords').textContent=wc.toLocaleString()+' words';
+
+  const avg=INTERVIEW.slice(0,iIdx).reduce((s,l)=>s+l.conf,0)/iIdx;
+  document.getElementById('confBar').style.width=avg.toFixed(0)+'%';
+  document.getElementById('confidenceLabel') && (document.getElementById('confidenceLabel').textContent=avg.toFixed(0)+'%');
+  const cl=document.getElementById('confLbl');
+  if(cl) cl.textContent=avg.toFixed(0)+'%';
+
+  setTimeout(()=>{ area.querySelectorAll('.cursor-blink').forEach((c,i,a)=>{ if(i<a.length-1) c.remove(); }); },4800);
+}
+
+/* ─── Pre-build conversation wave ─── */
+setTimeout(()=>buildWave('cWave',16),100);
+</script>
+</body>
+</html>
